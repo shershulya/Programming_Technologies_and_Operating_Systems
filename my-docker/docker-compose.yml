@@ -1,0 +1,33 @@
+version: '3.3'
+
+services:
+  postgres:
+    image: postgres
+    container_name: localpostgres
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-testdb}
+      POSTGRES_USER: ${POSTGRES_USER:-debug}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-debug}
+      POSTGRES_PORT: ${POSTGRES_PORT:-5432}
+      POSTGRES_HOST: ${POSTGRES_HOST:-postgres}
+    ports:
+      - ${POSTGRES_PORT:-5432}:5432
+
+  fill_db:
+    depends_on:
+      - postgres
+    build: ./service2
+    container_name: fill_db
+    volumes:
+      - './service2:/service2'
+
+  httpd:
+    depends_on:
+      - postgres
+      - fill_db
+    build: ./service3
+    container_name: httpd
+    volumes:
+      - './service3:/service3'
+    ports:
+      - 11050:5000

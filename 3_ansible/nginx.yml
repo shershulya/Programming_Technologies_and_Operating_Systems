@@ -1,0 +1,101 @@
+---
+- hosts: web
+  tasks:
+    - name: Installs Nginx web server
+      become: yes
+      package:
+        name: nginx
+        state: latest
+        update_cache: true
+      register: nginx_installed
+      notify:
+        - Restart Nginx
+
+    - name: Copy the service_state to /opt
+      when: nginx_installed is succeeded
+      become: yes
+      copy:
+        src: service_state
+        dest: /opt/service_state
+        force: no
+
+    - name: Copy the nginx.conf to redirect_service_data.conf
+      when: nginx_installed is succeeded
+      become: yes
+      copy:
+        src: nginx.conf
+        dest: /etc/nginx/sites-available/redirect_service_data.conf
+      register: copy_conf
+      
+    - name: Link redirect_service_data.conf to sites-enabled
+      when: copy_conf is succeeded
+      file:
+        src: /etc/nginx/sites-available/redirect_service_data.conf
+        dest: /etc/nginx/sites-enabled/default
+        state: link
+      notify:
+        - Reload Nginx
+
+    - name: Cron start
+      become: yes
+      cron:
+        name: Rewrite uptime
+        job: sed -i "s/is .*$/is $(($(ps -o etimes= -p $(cat /var/run/nginx.pid)) / 60)) minutes/" /opt/service_state
+      register: cron_job
+
+
+
+    - block:
+      - name: Get start time state
+        become: yes
+        shell:
+          cmd: 'tail -n 1 /opt/service_state | grep -o "[0-9]*"'
+        register: start_state
+
+      - name: Waiting update
+        pause:
+          seconds: 100
+
+      - name: Get end time state
+        become: yes
+        shell:
+          cmd: 'tail -n 1 /opt/service_state | grep -o "[0-9]*"'
+        register: end_state
+
+      - name: Checking cron is not working
+        fail:
+          msg: Cron not works :(
+        when: start_state.stdout == end_state.stdout
+
+      when: cron_job.changed == true
+
+
+
+    - name: Read first string from server 
+      become: yes
+      shell:
+        cmd: 'head -n 1 /opt/service_state'
+      register: first_string
+
+    - name: Update serive_state if changed
+      when: first_string.stdout != first_string_host
+      become: yes
+      copy:
+        src: service_state
+        dest: /opt/service_state
+      notify:
+        - Restart Nginx
+
+  vars:
+    first_string_host: "{{lookup('file', 'service_state').splitlines()[0]}}"
+
+  handlers:
+    - name: Restart Nginx
+      service:
+        name: nginx
+        state: restarted
+
+    - name: Reload Nginx
+      service:
+        name: nginx
+        state: reloaded
